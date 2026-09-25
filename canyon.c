@@ -90,26 +90,112 @@ struct canyon_wayland {
 struct river_window_manager_v1 *window_manager;
 struct river_xkb_bindings_v1   *xkb_bindings;
 
+static void window_listener_closed (void                   *data,
+                                    struct river_window_v1 *window) {
+  struct canyon_wayland_window *wayland_window = data;
+  wayland_window->closed                       = true;
+}
+
+static void
+window_listener_dimensions_hint (void *data, struct river_window_v1 *window,
+                                 int32_t min_width, int32_t min_height,
+                                 int32_t max_width, int32_t max_height) {}
+
+static void window_listener_dimensions (void                   *data,
+                                        struct river_window_v1 *window,
+                                        int32_t width, int32_t height) {
+  struct canyon_wayland_window *wayland_window = data;
+  wayland_window->width                        = width;
+  wayland_window->height                       = height;
+}
+
+static void window_listener_app_id (void *data, struct river_window_v1 *window,
+                                    const char *app_id) {}
+
+static void window_listener_title (void *data, struct river_window_v1 *window,
+                                   const char *title) {}
+
+static void window_listener_parent (void *data, struct river_window_v1 *window,
+                                    struct river_window_v1 *parent) {}
+
+static void window_listener_decoration_hint (void                   *data,
+                                             struct river_window_v1 *window,
+                                             uint32_t                hint) {}
+
+static void window_listener_pointer_move_requested (
+  void *data, struct river_window_v1 *window, struct river_seat_v1 *seat) {
+  struct canyon_wayland_window *wayland_window = data;
+  wayland_window->pointer_move_requested = river_seat_v1_get_user_data (seat);
+}
+
+static void window_listener_pointer_resize_requested (
+  void *data, struct river_window_v1 *window, struct river_seat_v1 *seat,
+  uint32_t edges) {
+  struct canyon_wayland_window *wayland_window = data;
+  wayland_window->pointer_resize_requested = river_seat_v1_get_user_data (seat);
+  wayland_window->pointer_resize_requested_edges = edges;
+}
+
+static void window_listener_show_window_menu_requested (
+  void *data, struct river_window_v1 *window, int32_t x, int32_t y) {}
+
+static void
+window_listener_maximize_requested (void                   *data,
+                                    struct river_window_v1 *window) {}
+
+static void
+window_listener_unmaximize_requested (void                   *data,
+                                      struct river_window_v1 *window) {}
+
+static void
+window_listener_fullscreen_requested (void                   *data,
+                                      struct river_window_v1 *window,
+                                      struct river_output_v1 *river_output) {}
+
+static void
+window_listener_exit_fullscreen_requested (void                   *data,
+                                           struct river_window_v1 *window) {}
+
+static void
+window_listener_minimize_requested (void                   *data,
+                                    struct river_window_v1 *window) {}
+
+static void window_listener_unreliable_pid (void                   *data,
+                                            struct river_window_v1 *window,
+                                            int32_t unreliable_pid) {}
+
+static void window_listener_presentation_hint (void                   *data,
+                                               struct river_window_v1 *window,
+                                               uint32_t                hint) {}
+
+static void window_listener_identifier (void                   *data,
+                                        struct river_window_v1 *window,
+                                        const char             *identifier) {}
+
+static void window_listener_capture_sessions (void                   *data,
+                                              struct river_window_v1 *window,
+                                              uint32_t                count) {}
+
 const struct river_window_v1_listener window_listener = {
-  .closed                     = NULL,
-  .dimensions_hint            = NULL,
-  .dimensions                 = NULL,
-  .app_id                     = NULL,
-  .title                      = NULL,
-  .parent                     = NULL,
-  .decoration_hint            = NULL,
-  .pointer_move_requested     = NULL,
-  .pointer_resize_requested   = NULL,
-  .show_window_menu_requested = NULL,
-  .maximize_requested         = NULL,
-  .unmaximize_requested       = NULL,
-  .fullscreen_requested       = NULL,
-  .exit_fullscreen_requested  = NULL,
-  .minimize_requested         = NULL,
-  .unreliable_pid             = NULL,
-  .presentation_hint          = NULL,
-  .identifier                 = NULL,
-  .capture_sessions           = NULL,
+  .closed                     = window_listener_closed,
+  .dimensions_hint            = window_listener_dimensions_hint,
+  .dimensions                 = window_listener_dimensions,
+  .app_id                     = window_listener_app_id,
+  .title                      = window_listener_title,
+  .parent                     = window_listener_parent,
+  .decoration_hint            = window_listener_decoration_hint,
+  .pointer_move_requested     = window_listener_pointer_move_requested,
+  .pointer_resize_requested   = window_listener_pointer_resize_requested,
+  .show_window_menu_requested = window_listener_show_window_menu_requested,
+  .maximize_requested         = window_listener_maximize_requested,
+  .unmaximize_requested       = window_listener_unmaximize_requested,
+  .fullscreen_requested       = window_listener_fullscreen_requested,
+  .exit_fullscreen_requested  = window_listener_exit_fullscreen_requested,
+  .minimize_requested         = window_listener_minimize_requested,
+  .unreliable_pid             = window_listener_unreliable_pid,
+  .presentation_hint          = window_listener_presentation_hint,
+  .identifier                 = window_listener_identifier,
+  .capture_sessions           = window_listener_capture_sessions,
 };
 
 static void canyon_window_manage (struct canyon_wayland_window *window) {}
