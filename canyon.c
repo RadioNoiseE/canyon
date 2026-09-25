@@ -5,12 +5,94 @@
 #include <wayland-client.h>
 
 #include "river-window-management-v1.h"
+#include "river-xkb-bindings-v1.h"
+
+struct canyon_wayland_output {
+  struct river_output_v1 *output;
+  bool                    removed;
+
+  struct wl_list link;
+};
+
+struct canyon_wayland_window {
+  struct river_window_v1 *window;
+  struct river_node_v1   *node;
+
+  bool    new, closed;
+  int32_t x, y, width, height;
+
+  struct canyon_wayland_seat *pointer_move_requested, *pointer_resize_requested;
+  uint32_t                    pointer_resize_requested_edges;
+
+  struct wl_list link;
+};
+
+enum canyon_wayland_seat_action {
+  ACTION_CLOSE,
+  ACTION_EXIT,
+  ACTION_FOCUS_NEXT,
+  ACTION_MOVE,
+  ACTION_NONE,
+  ACTION_RESIZE,
+};
+
+struct canyon_wayland_seat_xkb_binding {
+  struct river_xkb_binding_v1    *xkb_binding;
+  struct canyon_wayland_seat     *seat;
+  enum canyon_wayland_seat_action action;
+
+  struct wl_list link;
+};
+
+struct canyon_wayland_seat_pointer_binding {
+  struct river_pointer_binding_v1 *pointer_binding;
+  struct canyon_wayland_seat      *seat;
+  enum canyon_wayland_seat_action  action;
+
+  struct wl_list link;
+};
+
+enum canyon_wayland_seat_op {
+  SEAT_OP_NONE,
+  SEAT_OP_MOVE,
+  SEAT_OP_RESIZE,
+};
+
+struct canyon_wayland_seat {
+  struct river_seat_v1 *seat;
+  bool                  new, removed;
+
+  struct canyon_wayland_window *focused, *hovered, *interacted;
+
+  struct wl_list                  xkb_bindings, pointer_bindings;
+  enum canyon_wayland_seat_action pending_action;
+
+  enum canyon_wayland_seat_op   op;
+  struct canyon_wayland_window *op_window;
+
+  int32_t op_start_x, op_start_y, op_dx, op_dy;
+  bool    op_release;
+
+  int32_t  op_start_width, op_start_height;
+  uint32_t op_edges;
+
+  struct wl_list link;
+};
 
 struct canyon_wayland {
+  struct wl_list outputs;
+  struct wl_list windows;
+  struct wl_list seats;
+
   bool exit;
 };
 
 struct river_window_manager_v1 *window_manager;
+struct river_xkb_bindings_v1   *xkb_bindings;
+
+static void canyon_window_manage (struct canyon_wayland_window *window) {}
+
+static void canyon_seat_manage (struct canyon_wayland_seat *seat) {}
 
 static void window_manager_listener_unavailable (
   void *data, struct river_window_manager_v1 *window_manager) {
@@ -28,10 +110,69 @@ static void window_manager_listener_finished (
   wayland->exit                  = true;
 }
 
+static void window_manager_listener_manage_start (
+  void *data, struct river_window_manager_v1 *window_manager) {
+  struct canyon_wayland *wayland = data;
+
+  struct canyon_wayland_output *output, *output_tmp;
+  wl_list_for_each_safe (output, output_tmp, &wayland->outputs,
+                         link) if (output->removed) {
+    river_output_v1_destroy (output->output);
+    wl_list_remove (&output->link);
+    free (output);
+  }
+
+  struct canyon_wayland_window *window, *window_tmp;
+  wl_list_for_each_safe (window, window_tmp, &wayland->windows,
+                         link) if (window->closed) {
+    struct canyon_wayland_seat *seat;
+    wl_list_for_each (seat, &wayland->seats, link) {
+      if (seat->focused == window) seat->focused = NULL;
+      if (seat->op_window == window) {
+        river_seat_v1_op_end (seat->seat);
+        seat->op        = SEAT_OP_NONE;
+        seat->op_window = NULL;
+      }
+    }
+
+    river_window_v1_destroy (window->window);
+    wl_list_remove (&window->link);
+    free (window);
+  }
+
+  struct canyon_wayland_seat *seat, *seat_tmp;
+  wl_list_for_each_safe (seat, seat_tmp, &wayland->seats,
+                         link) if (seat->removed) {
+    struct canyon_wayland_seat_xkb_binding *xkb_binding, *xkb_binding_tmp;
+    wl_list_for_each_safe (xkb_binding, xkb_binding_tmp, &seat->xkb_bindings,
+                           link) {
+      river_xkb_binding_v1_destroy (xkb_binding->xkb_binding);
+      wl_list_remove (&xkb_binding->link);
+      free (xkb_binding);
+    }
+
+    struct canyon_wayland_seat_pointer_binding *pointer_binding,
+      *pointer_binding_tmp;
+    wl_list_for_each_safe (pointer_binding, pointer_binding_tmp,
+                           &seat->pointer_bindings, link) {
+      river_pointer_binding_v1_destroy (pointer_binding->pointer_binding);
+      wl_list_remove (&pointer_binding->link);
+      free (pointer_binding);
+    }
+  }
+
+  wl_list_for_each (window, &wayland->windows, link)
+    canyon_window_manage (window);
+
+  wl_list_for_each (seat, &wayland->seats, link) canyon_seat_manage (seat);
+
+  river_window_manager_v1_manage_finish (window_manager);
+}
+
 static const struct river_window_manager_v1_listener window_manager_listener = {
   .unavailable      = window_manager_listener_unavailable,
   .finished         = window_manager_listener_finished,
-  .manage_start     = NULL,
+  .manage_start     = window_manager_listener_manage_start,
   .render_start     = NULL,
   .session_locked   = NULL,
   .session_unlocked = NULL,
@@ -43,9 +184,12 @@ static const struct river_window_manager_v1_listener window_manager_listener = {
 static void registry_listener_global (void *data, struct wl_registry *registry,
                                       uint32_t name, const char *interface,
                                       uint32_t version) {
-  if (strcmp (interface, river_window_manager_v1_interface.name) == 0)
+  if (!strcmp (interface, river_window_manager_v1_interface.name))
     window_manager =
       wl_registry_bind (registry, name, &river_window_manager_v1_interface, 5);
+  else if (!strcmp (interface, river_xkb_bindings_v1_interface.name))
+    xkb_bindings =
+      wl_registry_bind (registry, name, &river_xkb_bindings_v1_interface, 3);
 }
 
 static void registry_listener_global_remove (void               *data,
@@ -68,6 +212,10 @@ int main (void) {
 
   wl_registry_add_listener (registry, &registry_listener, &wayland);
   wl_display_roundtrip (display);
+
+  wl_list_init (&wayland.outputs);
+  wl_list_init (&wayland.windows);
+  wl_list_init (&wayland.seats);
 
   river_window_manager_v1_add_listener (window_manager,
                                         &window_manager_listener, &wayland);
