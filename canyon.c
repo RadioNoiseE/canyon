@@ -7,13 +7,6 @@
 #include "river-window-management-v1.h"
 #include "river-xkb-bindings-v1.h"
 
-struct canyon_wayland_output {
-  struct river_output_v1 *output;
-  bool                    removed;
-
-  struct wl_list link;
-};
-
 struct canyon_wayland_window {
   struct river_window_v1 *window;
   struct river_node_v1   *node;
@@ -23,6 +16,13 @@ struct canyon_wayland_window {
 
   struct canyon_wayland_seat *pointer_move_requested, *pointer_resize_requested;
   uint32_t                    pointer_resize_requested_edges;
+
+  struct wl_list link;
+};
+
+struct canyon_wayland_output {
+  struct river_output_v1 *output;
+  bool                    removed;
 
   struct wl_list link;
 };
@@ -90,9 +90,53 @@ struct canyon_wayland {
 struct river_window_manager_v1 *window_manager;
 struct river_xkb_bindings_v1   *xkb_bindings;
 
+const struct river_window_v1_listener window_listener = {
+  .closed                     = NULL,
+  .dimensions_hint            = NULL,
+  .dimensions                 = NULL,
+  .app_id                     = NULL,
+  .title                      = NULL,
+  .parent                     = NULL,
+  .decoration_hint            = NULL,
+  .pointer_move_requested     = NULL,
+  .pointer_resize_requested   = NULL,
+  .show_window_menu_requested = NULL,
+  .maximize_requested         = NULL,
+  .unmaximize_requested       = NULL,
+  .fullscreen_requested       = NULL,
+  .exit_fullscreen_requested  = NULL,
+  .minimize_requested         = NULL,
+  .unreliable_pid             = NULL,
+  .presentation_hint          = NULL,
+  .identifier                 = NULL,
+  .capture_sessions           = NULL,
+};
+
 static void canyon_window_manage (struct canyon_wayland_window *window) {}
 
+const struct river_output_v1_listener output_listener = {
+  .removed          = NULL,
+  .wl_output        = NULL,
+  .position         = NULL,
+  .dimensions       = NULL,
+  .capture_sessions = NULL,
+};
+
+const struct river_seat_v1_listener seat_listener = {
+  .removed                   = NULL,
+  .wl_seat                   = NULL,
+  .pointer_enter             = NULL,
+  .pointer_leave             = NULL,
+  .window_interaction        = NULL,
+  .shell_surface_interaction = NULL,
+  .op_delta                  = NULL,
+  .op_release                = NULL,
+  .pointer_position          = NULL,
+};
+
 static void canyon_seat_manage (struct canyon_wayland_seat *seat) {}
+
+static void canyon_seat_render (struct canyon_wayland_seat *seat) {}
 
 static void window_manager_listener_unavailable (
   void *data, struct river_window_manager_v1 *window_manager) {
@@ -169,15 +213,74 @@ static void window_manager_listener_manage_start (
   river_window_manager_v1_manage_finish (window_manager);
 }
 
+static void window_manager_listener_render_start (
+  void *data, struct river_window_manager_v1 *window_manager) {
+  struct canyon_wayland *wayland = data;
+
+  struct canyon_wayland_seat *seat;
+  wl_list_for_each (seat, &wayland->seats, link) canyon_seat_render (seat);
+
+  river_window_manager_v1_render_finish (window_manager);
+}
+
+static void window_manager_listener_session_locked (
+  void *data, struct river_window_manager_v1 *window_manager) {}
+
+static void window_manager_listener_session_unlocked (
+  void *data, struct river_window_manager_v1 *window_manager) {}
+
+static void
+window_manager_listener_window (void                           *data,
+                                struct river_window_manager_v1 *window_manager,
+                                struct river_window_v1         *window) {
+  struct canyon_wayland *wayland = data;
+
+  struct canyon_wayland_window *wayland_window =
+    calloc (1, sizeof (struct canyon_wayland_window));
+  wayland_window->window = window;
+  wayland_window->node   = river_window_v1_get_node (window);
+  wayland_window->new    = true;
+
+  river_window_v1_add_listener (window, &window_listener, wayland_window);
+  wl_list_insert (wayland->windows.prev, &wayland_window->link);
+}
+
+static void
+window_manager_listener_output (void                           *data,
+                                struct river_window_manager_v1 *window_manager,
+                                struct river_output_v1         *output) {
+  struct canyon_wayland *wayland = data;
+
+  struct canyon_wayland_output *wayland_output =
+    calloc (1, sizeof (struct canyon_wayland_output));
+  wayland_output->output = output;
+
+  river_output_v1_add_listener (output, &output_listener, wayland_output);
+  wl_list_insert (wayland->outputs.prev, &wayland_output->link);
+}
+
+static void
+window_manager_listener_seat (void                           *data,
+                              struct river_window_manager_v1 *window_manager,
+                              struct river_seat_v1           *seat) {
+  struct canyon_wayland *wayland = data;
+
+  struct canyon_wayland_seat *wayland_seat =
+    calloc (1, sizeof (struct canyon_wayland_seat));
+
+  river_seat_v1_add_listener (seat, &seat_listener, wayland_seat);
+  wl_list_insert (wayland->seats.prev, &wayland_seat->link);
+}
+
 static const struct river_window_manager_v1_listener window_manager_listener = {
   .unavailable      = window_manager_listener_unavailable,
   .finished         = window_manager_listener_finished,
   .manage_start     = window_manager_listener_manage_start,
-  .render_start     = NULL,
-  .session_locked   = NULL,
-  .session_unlocked = NULL,
-  .window           = NULL,
-  .output           = NULL,
+  .render_start     = window_manager_listener_render_start,
+  .session_locked   = window_manager_listener_session_locked,
+  .session_unlocked = window_manager_listener_session_unlocked,
+  .window           = window_manager_listener_window,
+  .output           = window_manager_listener_output,
   .seat             = NULL,
 };
 
