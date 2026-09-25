@@ -217,8 +217,9 @@ int main (void) {
   wl_list_init (&wayland.windows);
   wl_list_init (&wayland.seats);
 
-  river_window_manager_v1_add_listener (window_manager,
-                                        &window_manager_listener, &wayland);
+  if (window_manager != NULL && xkb_bindings != NULL)
+    river_window_manager_v1_add_listener (window_manager,
+                                          &window_manager_listener, &wayland);
 
   while (wl_display_dispatch (display) != -1 && !wayland.exit)
     ;
