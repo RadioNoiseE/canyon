@@ -147,10 +147,8 @@ static void
 window_listener_unmaximize_requested (void                   *data,
                                       struct river_window_v1 *window) {}
 
-static void
-window_listener_fullscreen_requested (void                   *data,
-                                      struct river_window_v1 *window,
-                                      struct river_output_v1 *river_output) {}
+static void window_listener_fullscreen_requested (
+  void *data, struct river_window_v1 *window, struct river_output_v1 *output) {}
 
 static void
 window_listener_exit_fullscreen_requested (void                   *data,
