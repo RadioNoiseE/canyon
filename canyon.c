@@ -254,16 +254,63 @@ const struct river_output_v1_listener output_listener = {
   .capture_sessions = output_listener_capture_sessions,
 };
 
+static void seat_listener_removed (void *data, struct river_seat_v1 *seat) {
+  struct canyon_wayland_seat *wayland_seat = data;
+  wayland_seat->removed                    = true;
+}
+
+static void seat_listener_wl_seat (void *data, struct river_seat_v1 *seat,
+                                   uint32_t name) {}
+
+static void seat_listener_pointer_enter (void *data, struct river_seat_v1 *seat,
+                                         struct river_window_v1 *window) {
+  struct canyon_wayland_seat *wayland_seat = data;
+  wayland_seat->hovered = river_window_v1_get_user_data (window);
+}
+
+static void seat_listener_pointer_leave (void                 *data,
+                                         struct river_seat_v1 *seat) {
+  struct canyon_wayland_seat *wayland_seat = data;
+  wayland_seat->hovered                    = NULL;
+}
+
+static void seat_listener_window_interaction (void                   *data,
+                                              struct river_seat_v1   *seat,
+                                              struct river_window_v1 *window) {
+  struct canyon_wayland_seat *wayland_seat = data;
+  wayland_seat->interacted = river_window_v1_get_user_data (window);
+}
+
+static void seat_listener_shell_surface_interaction (
+  void *data, struct river_seat_v1 *seat,
+  struct river_shell_surface_v1 *shell_surface) {}
+
+static void seat_listener_op_delta (void *data, struct river_seat_v1 *seat,
+                                    int32_t dx, int32_t dy) {
+  struct canyon_wayland_seat *wayland_seat = data;
+  wayland_seat->op_dx                      = dx;
+  wayland_seat->op_dy                      = dy;
+}
+
+static void seat_listener_op_release (void *data, struct river_seat_v1 *seat) {
+  struct canyon_wayland_seat *wayland_seat = data;
+  wayland_seat->op_release                 = true;
+}
+
+static void seat_listener_pointer_position (void                 *data,
+                                            struct river_seat_v1 *seat,
+                                            int32_t x, int32_t y) {}
+
 const struct river_seat_v1_listener seat_listener = {
-  .removed                   = NULL,
-  .wl_seat                   = NULL,
-  .pointer_enter             = NULL,
-  .pointer_leave             = NULL,
-  .window_interaction        = NULL,
-  .shell_surface_interaction = NULL,
-  .op_delta                  = NULL,
-  .op_release                = NULL,
-  .pointer_position          = NULL,
+  .removed                   = seat_listener_removed,
+  .wl_seat                   = seat_listener_wl_seat,
+  .pointer_enter             = seat_listener_pointer_enter,
+  .pointer_leave             = seat_listener_pointer_leave,
+  .window_interaction        = seat_listener_window_interaction,
+  .shell_surface_interaction = seat_listener_shell_surface_interaction,
+  .op_delta                  = seat_listener_op_delta,
+  .op_release                = seat_listener_op_release,
+  .pointer_position          = seat_listener_pointer_position,
 };
 
 static void seat_pointer_move (struct canyon_wayland_seat   *seat,
