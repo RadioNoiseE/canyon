@@ -2,7 +2,11 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+#include <linux/input-event-codes.h>
 #include <wayland-client.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include "river-window-management-v1.h"
 #include "river-xkb-bindings-v1.h"
@@ -34,6 +38,7 @@ enum canyon_wayland_seat_action {
   ACTION_MOVE,
   ACTION_NONE,
   ACTION_RESIZE,
+  ACTION_SPAWN_FOOT,
 };
 
 struct canyon_wayland_seat_xkb_binding {
@@ -196,12 +201,10 @@ const struct river_window_v1_listener window_listener = {
   .capture_sessions           = window_listener_capture_sessions,
 };
 
-// defined elsewhere
 static void canyon_seat_pointer_move (struct canyon_wayland        *wayland,
                                       struct canyon_wayland_seat   *seat,
                                       struct canyon_wayland_window *window);
 
-// defined elsewhere
 static void canyon_seat_pointer_resize (struct canyon_wayland        *wayland,
                                         struct canyon_wayland_seat   *seat,
                                         struct canyon_wayland_window *window,
@@ -256,6 +259,76 @@ const struct river_output_v1_listener output_listener = {
   .dimensions       = output_listener_dimensions,
   .capture_sessions = output_listener_capture_sessions,
 };
+
+static void
+xkb_binding_listener_pressed (void                        *data,
+                              struct river_xkb_binding_v1 *xkb_binding) {
+  struct canyon_wayland_seat_xkb_binding *wayland_xkb_binding = data;
+  wayland_xkb_binding->seat->pending_action = wayland_xkb_binding->action;
+}
+
+static void
+xkb_binding_listener_released (void                        *data,
+                               struct river_xkb_binding_v1 *xkb_binding) {}
+
+static void
+xkb_binding_listener_stop_repeat (void                        *data,
+                                  struct river_xkb_binding_v1 *xkb_binding) {}
+
+const struct river_xkb_binding_v1_listener xkb_binding_listener = {
+  .pressed     = xkb_binding_listener_pressed,
+  .released    = xkb_binding_listener_released,
+  .stop_repeat = xkb_binding_listener_stop_repeat,
+};
+
+static void canyon_xkb_binding_create (struct canyon_wayland      *wayland,
+                                       struct canyon_wayland_seat *seat,
+                                       uint32_t mods, xkb_keysym_t keysym,
+                                       enum canyon_wayland_seat_action action) {
+  struct canyon_wayland_seat_xkb_binding *xkb_binding =
+    calloc (1, sizeof (struct canyon_wayland_seat_xkb_binding));
+  xkb_binding->xkb_binding = river_xkb_bindings_v1_get_xkb_binding (
+    xkb_bindings, seat->seat, keysym, mods);
+  xkb_binding->seat   = seat;
+  xkb_binding->action = action;
+
+  river_xkb_binding_v1_add_listener (xkb_binding->xkb_binding,
+                                     &xkb_binding_listener, xkb_binding);
+  river_xkb_binding_v1_enable (xkb_binding->xkb_binding);
+  wl_list_insert (seat->xkb_bindings.prev, &xkb_binding->link);
+}
+
+static void pointer_binding_listener_pressed (
+  void *data, struct river_pointer_binding_v1 *pointer_binding) {
+  struct canyon_wayland_seat_pointer_binding *wayland_pointer_binding = data;
+  wayland_pointer_binding->seat->pending_action =
+    wayland_pointer_binding->action;
+}
+
+static void pointer_binding_listener_released (
+  void *data, struct river_pointer_binding_v1 *pointer_binding) {}
+
+const struct river_pointer_binding_v1_listener pointer_binding_listener = {
+  .pressed  = pointer_binding_listener_pressed,
+  .released = pointer_binding_listener_released,
+};
+
+static void canyon_pointer_binding_create (
+  struct canyon_wayland *wayland, struct canyon_wayland_seat *seat,
+  uint32_t mods, uint32_t button, enum canyon_wayland_seat_action action) {
+  struct canyon_wayland_seat_pointer_binding *pointer_binding =
+    calloc (1, sizeof (struct canyon_wayland_seat_pointer_binding));
+  pointer_binding->pointer_binding =
+    river_seat_v1_get_pointer_binding (seat->seat, button, mods);
+  pointer_binding->seat   = seat;
+  pointer_binding->action = action;
+
+  river_pointer_binding_v1_add_listener (pointer_binding->pointer_binding,
+                                         &pointer_binding_listener,
+                                         pointer_binding);
+  river_pointer_binding_v1_enable (pointer_binding->pointer_binding);
+  wl_list_insert (seat->pointer_bindings.prev, &pointer_binding->link);
+}
 
 static void seat_listener_removed (void *data, struct river_seat_v1 *seat) {
   struct canyon_wayland_seat *wayland_seat = data;
@@ -367,11 +440,130 @@ static void canyon_seat_pointer_resize (struct canyon_wayland        *wayland,
   seat->op_dy           = 0;
 }
 
+static void canyon_seat_action (struct canyon_wayland          *wayland,
+                                struct canyon_wayland_seat     *seat,
+                                enum canyon_wayland_seat_action action) {
+  switch (action) {
+  case ACTION_CLOSE:
+    if (seat->focused != NULL) river_window_v1_close (seat->focused->window);
+    break;
+  case ACTION_EXIT:
+    river_window_manager_v1_exit_session (window_manager);
+    break;
+  case ACTION_FOCUS_NEXT:
+    if (!wl_list_empty (&wayland->windows)) {
+      struct canyon_wayland_window *window =
+        wl_container_of (wayland->windows.next, window, link);
+      canyon_seat_focus (wayland, seat, window);
+    }
+    break;
+  case ACTION_MOVE:
+    if (seat->op == SEAT_OP_NONE && seat->hovered != NULL)
+      canyon_seat_pointer_move (wayland, seat, seat->hovered);
+    break;
+  case ACTION_NONE:
+    break;
+  case ACTION_RESIZE:
+    if (seat->op == SEAT_OP_NONE && seat->hovered != NULL)
+      canyon_seat_pointer_resize (wayland, seat, seat->hovered,
+                                  RIVER_WINDOW_V1_EDGES_BOTTOM |
+                                    RIVER_WINDOW_V1_EDGES_RIGHT);
+    break;
+  case ACTION_SPAWN_FOOT:
+    if (!fork ()) execlp ("foot", "foot", NULL);
+    printf("SPAWN_FOOT action recieved\n");
+    break;
+  }
+}
+
 static void canyon_seat_manage (struct canyon_wayland      *wayland,
-                                struct canyon_wayland_seat *seat) {}
+                                struct canyon_wayland_seat *seat) {
+  if (seat->new) {
+    seat->new = false;
+
+    canyon_xkb_binding_create (wayland, seat, RIVER_SEAT_V1_MODIFIERS_MOD4,
+                               XKB_KEY_q, ACTION_CLOSE);
+    canyon_xkb_binding_create (wayland, seat, RIVER_SEAT_V1_MODIFIERS_MOD4,
+                               XKB_KEY_e, ACTION_EXIT);
+    canyon_xkb_binding_create (wayland, seat, RIVER_SEAT_V1_MODIFIERS_MOD4,
+                               XKB_KEY_n, ACTION_FOCUS_NEXT);
+    canyon_xkb_binding_create (wayland, seat, RIVER_SEAT_V1_MODIFIERS_MOD4,
+                               XKB_KEY_space, ACTION_SPAWN_FOOT);
+
+    canyon_pointer_binding_create (wayland, seat, RIVER_SEAT_V1_MODIFIERS_MOD4,
+                                   BTN_LEFT, ACTION_MOVE);
+    canyon_pointer_binding_create (wayland, seat, RIVER_SEAT_V1_MODIFIERS_MOD4,
+                                   BTN_RIGHT, ACTION_RESIZE);
+  }
+
+  canyon_seat_focus (wayland, seat, seat->interacted);
+  seat->interacted = NULL;
+
+  canyon_seat_action (wayland, seat, seat->pending_action);
+  seat->pending_action = ACTION_NONE;
+
+  switch (seat->op) {
+  case SEAT_OP_MOVE:
+    if (seat->op_release) {
+      river_seat_v1_op_end (seat->seat);
+      seat->op        = SEAT_OP_NONE;
+      seat->op_window = NULL;
+    }
+    break;
+  case SEAT_OP_NONE:
+    break;
+  case SEAT_OP_RESIZE:
+    if (seat->op_release) {
+      river_window_v1_inform_resize_end (seat->op_window->window);
+      river_seat_v1_op_end (seat->seat);
+      seat->op        = SEAT_OP_NONE;
+      seat->op_window = NULL;
+      break;
+    }
+
+    int32_t width  = seat->op_start_width;
+    int32_t height = seat->op_start_height;
+
+    if ((seat->op_edges & RIVER_WINDOW_V1_EDGES_LEFT)) width -= seat->op_dx;
+    if ((seat->op_edges & RIVER_WINDOW_V1_EDGES_RIGHT)) width += seat->op_dx;
+    if ((seat->op_edges & RIVER_WINDOW_V1_EDGES_TOP)) height -= seat->op_dy;
+    if ((seat->op_edges & RIVER_WINDOW_V1_EDGES_BOTTOM)) height += seat->op_dy;
+
+    river_window_v1_propose_dimensions (
+      seat->op_window->window, width > 1 ? width : 1, height > 1 ? height : 1);
+    break;
+  }
+
+  seat->op_release = false;
+}
 
 static void canyon_seat_render (struct canyon_wayland      *wayland,
-                                struct canyon_wayland_seat *seat) {}
+                                struct canyon_wayland_seat *seat) {
+  switch (seat->op) {
+  case SEAT_OP_MOVE:
+    river_node_v1_set_position (seat->op_window->node,
+                                seat->op_start_x + seat->op_dx,
+                                seat->op_start_y + seat->op_dy);
+    seat->op_window->x = seat->op_start_x + seat->op_dx;
+    seat->op_window->y = seat->op_start_y + seat->op_dy;
+    break;
+  case SEAT_OP_NONE:
+    break;
+  case SEAT_OP_RESIZE:
+    int32_t x = seat->op_start_x;
+    int32_t y = seat->op_start_y;
+
+    if ((seat->op_edges & RIVER_WINDOW_V1_EDGES_LEFT))
+      x += seat->op_start_width - seat->op_window->width;
+    if ((seat->op_edges & RIVER_WINDOW_V1_EDGES_TOP))
+      y += seat->op_start_height - seat->op_window->height;
+
+    river_node_v1_set_position (seat->op_window->node, x, y);
+    seat->op_window->x = x;
+    seat->op_window->y = y;
+    break;
+  }
+}
 
 static void window_manager_listener_unavailable (
   void *data, struct river_window_manager_v1 *window_manager) {
@@ -504,6 +696,10 @@ window_manager_listener_seat (void                           *data,
 
   struct canyon_wayland_seat *wayland_seat =
     calloc (1, sizeof (struct canyon_wayland_seat));
+  wayland_seat->seat = seat;
+  wayland_seat->new  = true;
+  wl_list_init (&wayland_seat->xkb_bindings);
+  wl_list_init (&wayland_seat->pointer_bindings);
 
   river_seat_v1_add_listener (seat, &seat_listener, wayland_seat);
   wl_list_insert (wayland->seats.prev, &wayland_seat->link);
@@ -518,7 +714,7 @@ static const struct river_window_manager_v1_listener window_manager_listener = {
   .session_unlocked = window_manager_listener_session_unlocked,
   .window           = window_manager_listener_window,
   .output           = window_manager_listener_output,
-  .seat             = NULL,
+  .seat             = window_manager_listener_seat,
 };
 
 static void registry_listener_global (void *data, struct wl_registry *registry,
@@ -544,6 +740,10 @@ static const struct wl_registry_listener registry_listener = {
 int main (void) {
   struct canyon_wayland wayland = {0};
 
+  wl_list_init (&wayland.windows);
+  wl_list_init (&wayland.outputs);
+  wl_list_init (&wayland.seats);
+
   struct wl_display  *display  = wl_display_connect (NULL);
   struct wl_registry *registry = wl_display_get_registry (display);
 
@@ -552,10 +752,6 @@ int main (void) {
 
   wl_registry_add_listener (registry, &registry_listener, &wayland);
   wl_display_roundtrip (display);
-
-  wl_list_init (&wayland.windows);
-  wl_list_init (&wayland.outputs);
-  wl_list_init (&wayland.seats);
 
   if (window_manager != NULL && xkb_bindings != NULL)
     river_window_manager_v1_add_listener (window_manager,
