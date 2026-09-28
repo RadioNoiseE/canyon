@@ -1,3 +1,5 @@
+CompileFlags:
+  Add: [-std=c23, -Wall]
 Completion:
   HeaderInsertion: Never
 InlayHints:
