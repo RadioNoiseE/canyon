@@ -216,6 +216,7 @@ static void canyon_window_manage (struct canyon_wayland        *wayland,
     window->new = false;
     river_node_v1_set_position (window->node, 0, 0);
     window->x = window->y = 0;
+    river_window_v1_propose_dimensions (window->window, 0, 0);
   }
 
   if (window->pointer_move_requested != NULL) {
@@ -392,7 +393,7 @@ const struct river_seat_v1_listener seat_listener = {
 static void canyon_seat_focus (struct canyon_wayland        *wayland,
                                struct canyon_wayland_seat   *seat,
                                struct canyon_wayland_window *window) {
-  if (window != NULL && !wl_list_empty (&wayland->windows))
+  if (window == NULL && !wl_list_empty (&wayland->windows))
     window = wl_container_of (wayland->windows.prev, window, link);
 
   if (seat->focused == window) return;
@@ -471,7 +472,6 @@ static void canyon_seat_action (struct canyon_wayland          *wayland,
     break;
   case ACTION_SPAWN_FOOT:
     if (!fork ()) execlp ("foot", "foot", NULL);
-    printf("SPAWN_FOOT action recieved\n");
     break;
   }
 }
