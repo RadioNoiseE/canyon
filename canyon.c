@@ -197,15 +197,18 @@ const struct river_window_v1_listener window_listener = {
 };
 
 // defined elsewhere
-static void seat_pointer_move (struct canyon_wayland_seat   *seat,
-                               struct canyon_wayland_window *window);
+static void canyon_seat_pointer_move (struct canyon_wayland        *wayland,
+                                      struct canyon_wayland_seat   *seat,
+                                      struct canyon_wayland_window *window);
 
 // defined elsewhere
-static void seat_pointer_resize (struct canyon_wayland_seat   *seat,
-                                 struct canyon_wayland_window *window,
-                                 uint32_t                      edges);
+static void canyon_seat_pointer_resize (struct canyon_wayland        *wayland,
+                                        struct canyon_wayland_seat   *seat,
+                                        struct canyon_wayland_window *window,
+                                        uint32_t                      edges);
 
-static void canyon_window_manage (struct canyon_wayland_window *window) {
+static void canyon_window_manage (struct canyon_wayland        *wayland,
+                                  struct canyon_wayland_window *window) {
   if (window->new) {
     window->new = false;
     river_node_v1_set_position (window->node, 0, 0);
@@ -213,13 +216,13 @@ static void canyon_window_manage (struct canyon_wayland_window *window) {
   }
 
   if (window->pointer_move_requested != NULL) {
-    seat_pointer_move (window->pointer_move_requested, window);
+    canyon_seat_pointer_move (wayland, window->pointer_move_requested, window);
     window->pointer_move_requested = NULL;
   }
 
   if (window->pointer_resize_requested != NULL) {
-    seat_pointer_resize (window->pointer_resize_requested, window,
-                         window->pointer_resize_requested_edges);
+    canyon_seat_pointer_resize (wayland, window->pointer_resize_requested,
+                                window, window->pointer_resize_requested_edges);
     window->pointer_resize_requested = NULL;
   }
 }
@@ -313,16 +316,62 @@ const struct river_seat_v1_listener seat_listener = {
   .pointer_position          = seat_listener_pointer_position,
 };
 
-static void seat_pointer_move (struct canyon_wayland_seat   *seat,
-                               struct canyon_wayland_window *window) {};
+static void canyon_seat_focus (struct canyon_wayland        *wayland,
+                               struct canyon_wayland_seat   *seat,
+                               struct canyon_wayland_window *window) {
+  if (window != NULL && !wl_list_empty (&wayland->windows))
+    window = wl_container_of (wayland->windows.prev, window, link);
 
-static void seat_pointer_resize (struct canyon_wayland_seat   *seat,
-                                 struct canyon_wayland_window *window,
-                                 uint32_t                      edges) {};
+  if (seat->focused == window) return;
 
-static void canyon_seat_manage (struct canyon_wayland_seat *seat) {}
+  if (window != NULL) {
+    river_seat_v1_focus_window (seat->seat, window->window);
+    river_node_v1_place_top (window->node);
+    wl_list_remove (&window->link);
+    wl_list_insert (wayland->windows.prev, &window->link);
+  } else river_seat_v1_clear_focus (seat->seat);
 
-static void canyon_seat_render (struct canyon_wayland_seat *seat) {}
+  seat->focused = window;
+}
+
+static void canyon_seat_pointer_move (struct canyon_wayland        *wayland,
+                                      struct canyon_wayland_seat   *seat,
+                                      struct canyon_wayland_window *window) {
+  canyon_seat_focus (wayland, seat, window);
+  river_seat_v1_op_start_pointer (seat->seat);
+
+  seat->op         = SEAT_OP_MOVE;
+  seat->op_window  = window;
+  seat->op_start_x = window->x;
+  seat->op_start_y = window->y;
+  seat->op_dx      = 0;
+  seat->op_dy      = 0;
+}
+
+static void canyon_seat_pointer_resize (struct canyon_wayland        *wayland,
+                                        struct canyon_wayland_seat   *seat,
+                                        struct canyon_wayland_window *window,
+                                        uint32_t                      edges) {
+  canyon_seat_focus (wayland, seat, window);
+  river_window_v1_inform_resize_start (window->window);
+  river_seat_v1_op_start_pointer (seat->seat);
+
+  seat->op              = SEAT_OP_RESIZE;
+  seat->op_window       = window;
+  seat->op_edges        = edges;
+  seat->op_start_x      = window->x;
+  seat->op_start_y      = window->y;
+  seat->op_start_width  = window->width;
+  seat->op_start_height = window->height;
+  seat->op_dx           = 0;
+  seat->op_dy           = 0;
+}
+
+static void canyon_seat_manage (struct canyon_wayland      *wayland,
+                                struct canyon_wayland_seat *seat) {}
+
+static void canyon_seat_render (struct canyon_wayland      *wayland,
+                                struct canyon_wayland_seat *seat) {}
 
 static void window_manager_listener_unavailable (
   void *data, struct river_window_manager_v1 *window_manager) {
@@ -392,9 +441,10 @@ static void window_manager_listener_manage_start (
   }
 
   wl_list_for_each (window, &wayland->windows, link)
-    canyon_window_manage (window);
+    canyon_window_manage (wayland, window);
 
-  wl_list_for_each (seat, &wayland->seats, link) canyon_seat_manage (seat);
+  wl_list_for_each (seat, &wayland->seats, link)
+    canyon_seat_manage (wayland, seat);
 
   river_window_manager_v1_manage_finish (window_manager);
 }
@@ -404,7 +454,8 @@ static void window_manager_listener_render_start (
   struct canyon_wayland *wayland = data;
 
   struct canyon_wayland_seat *seat;
-  wl_list_for_each (seat, &wayland->seats, link) canyon_seat_render (seat);
+  wl_list_for_each (seat, &wayland->seats, link)
+    canyon_seat_render (wayland, seat);
 
   river_window_manager_v1_render_finish (window_manager);
 }
