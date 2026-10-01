@@ -8,6 +8,7 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 
+#include "river-input-management-v1.h"
 #include "river-libinput-config-v1.h"
 #include "river-window-management-v1.h"
 #include "river-xkb-bindings-v1.h"
@@ -121,7 +122,7 @@ static void libinput_device_listener_send_events_current (
 static void libinput_device_listener_tap_support (
   void *data, struct river_libinput_device_v1 *libinput_device,
   int32_t finger_count) {
-  if (!finger_count)
+  if (finger_count)
     river_libinput_device_v1_set_tap (
       libinput_device, RIVER_LIBINPUT_DEVICE_V1_TAP_STATE_ENABLED);
 }
@@ -538,10 +539,13 @@ static void canyon_seat_pointer_resize (struct canyon_wayland        *wayland,
 static void canyon_window_manage (struct canyon_wayland        *wayland,
                                   struct canyon_wayland_window *window) {
   if (window->new) {
-    window->new = false;
+    river_window_v1_use_ssd (window->window);
+
     river_node_v1_set_position (window->node, 0, 0);
     window->x = window->y = 0;
     river_window_v1_propose_dimensions (window->window, 0, 0);
+
+    window->new = false;
   }
 
   if (window->pointer_move_requested != NULL) {
@@ -1091,7 +1095,4 @@ int main (void) {
 
   while (wl_display_dispatch (display) != -1 && !wayland.exit)
     ;
-
-  wl_registry_destroy (registry);
-  wl_display_disconnect (display);
 }
