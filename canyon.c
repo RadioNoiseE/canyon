@@ -164,11 +164,11 @@ static void libinput_device_listener_three_finger_drag_support (
 
 static void libinput_device_listener_three_finger_drag_default (
   void *data, struct river_libinput_device_v1 *libinput_device,
-  enum river_libinput_device_v1_three_finger_drag_state) {}
+  enum river_libinput_device_v1_three_finger_drag_state state) {}
 
 static void libinput_device_listener_three_finger_drag_current (
   void *data, struct river_libinput_device_v1 *libinput_device,
-  enum river_libinput_device_v1_three_finger_drag_state) {}
+  enum river_libinput_device_v1_three_finger_drag_state state) {}
 
 static void libinput_device_listener_calibration_matrix_support (
   void *data, struct river_libinput_device_v1 *libinput_device,
