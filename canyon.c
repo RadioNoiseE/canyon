@@ -8,6 +8,7 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 
+#include "river-libinput-config-v1.h"
 #include "river-window-management-v1.h"
 #include "river-xkb-bindings-v1.h"
 
@@ -92,8 +93,332 @@ struct canyon_wayland {
   bool exit;
 };
 
-struct river_window_manager_v1 *window_manager;
-struct river_xkb_bindings_v1   *xkb_bindings;
+struct river_libinput_config_v1 *libinput_config;
+struct river_window_manager_v1  *window_manager;
+struct river_xkb_bindings_v1    *xkb_bindings;
+
+static void libinput_device_listener_removed (
+  void *data, struct river_libinput_device_v1 *libinput_device) {
+  river_libinput_device_v1_destroy (libinput_device);
+}
+
+static void libinput_device_listener_input_device (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  struct river_input_device_v1 *input_device) {}
+
+static void libinput_device_listener_send_events_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_send_events_modes modes) {}
+
+static void libinput_device_listener_send_events_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_send_events_modes modes) {}
+
+static void libinput_device_listener_send_events_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_send_events_modes modes) {}
+
+static void libinput_device_listener_tap_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  int32_t finger_count) {
+  if (!finger_count)
+    river_libinput_device_v1_set_tap (
+      libinput_device, RIVER_LIBINPUT_DEVICE_V1_TAP_STATE_ENABLED);
+}
+
+static void libinput_device_listener_tap_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_tap_state state) {}
+
+static void libinput_device_listener_tap_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_tap_state state) {}
+
+static void libinput_device_listener_tap_button_map_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_tap_button_map button_map) {}
+
+static void libinput_device_listener_tap_button_map_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_tap_button_map button_map) {}
+
+static void libinput_device_listener_drag_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_drag_state state) {}
+
+static void libinput_device_listener_drag_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_drag_state state) {}
+
+static void libinput_device_listener_drag_lock_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_drag_lock_state state) {}
+
+static void libinput_device_listener_drag_lock_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_drag_lock_state state) {}
+
+static void libinput_device_listener_three_finger_drag_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  int32_t finger_count) {}
+
+static void libinput_device_listener_three_finger_drag_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_three_finger_drag_state) {}
+
+static void libinput_device_listener_three_finger_drag_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_three_finger_drag_state) {}
+
+static void libinput_device_listener_calibration_matrix_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  int32_t supported) {}
+
+static void libinput_device_listener_calibration_matrix_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  struct wl_array *matrix) {}
+
+static void libinput_device_listener_calibration_matrix_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  struct wl_array *matrix) {}
+
+static void libinput_device_listener_accel_profiles_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_accel_profiles profiles) {}
+
+static void libinput_device_listener_accel_profile_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_accel_profiles profile) {}
+
+static void libinput_device_listener_accel_profile_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_accel_profiles profile) {}
+
+static void libinput_device_listener_accel_speed_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  struct wl_array *speed) {}
+
+static void libinput_device_listener_accel_speed_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  struct wl_array *speed) {}
+
+static void libinput_device_listener_natural_scroll_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  int32_t supported) {
+  if (supported)
+    river_libinput_device_v1_set_natural_scroll (
+      libinput_device, RIVER_LIBINPUT_DEVICE_V1_NATURAL_SCROLL_STATE_ENABLED);
+}
+
+static void libinput_device_listener_natural_scroll_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_natural_scroll_state state) {}
+
+static void libinput_device_listener_natural_scroll_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_natural_scroll_state state) {}
+
+static void libinput_device_listener_left_handed_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  int32_t supported) {}
+
+static void libinput_device_listener_left_handed_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_left_handed_state state) {}
+
+static void libinput_device_listener_left_handed_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_left_handed_state state) {}
+
+static void libinput_device_listener_click_method_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_click_methods methods) {}
+
+static void libinput_device_listener_click_method_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_click_method method) {}
+
+static void libinput_device_listener_click_method_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_click_method method) {}
+
+static void libinput_device_listener_clickfinger_button_map_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_clickfinger_button_map button_map) {}
+
+static void libinput_device_listener_clickfinger_button_map_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_clickfinger_button_map button_map) {}
+
+static void libinput_device_listener_middle_emulation_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  int32_t supported) {}
+
+static void libinput_device_listener_middle_emulation_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_middle_emulation_state state) {}
+
+static void libinput_device_listener_middle_emulation_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_middle_emulation_state state) {}
+
+static void libinput_device_listener_scroll_method_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_scroll_methods methods) {}
+
+static void libinput_device_listener_scroll_method_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_scroll_method method) {}
+
+static void libinput_device_listener_scroll_method_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_scroll_method method) {}
+
+static void libinput_device_listener_scroll_button_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  uint32_t button) {}
+
+static void libinput_device_listener_scroll_button_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  uint32_t button) {}
+
+static void libinput_device_listener_scroll_button_lock_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_scroll_button_lock_state state) {}
+
+static void libinput_device_listener_scroll_button_lock_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_scroll_button_lock_state state) {}
+
+static void libinput_device_listener_dwt_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  int32_t supported) {}
+
+static void libinput_device_listener_dwt_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_dwt_state state) {}
+
+static void libinput_device_listener_dwt_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_dwt_state state) {}
+
+static void libinput_device_listener_dwtp_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  int32_t supported) {}
+
+static void libinput_device_listener_dwtp_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_dwtp_state state) {}
+
+static void libinput_device_listener_dwtp_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  enum river_libinput_device_v1_dwtp_state state) {}
+
+static void libinput_device_listener_rotation_support (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  int32_t supported) {}
+
+static void libinput_device_listener_rotation_default (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  uint32_t angle) {}
+
+static void libinput_device_listener_rotation_current (
+  void *data, struct river_libinput_device_v1 *libinput_device,
+  uint32_t angle) {}
+
+static void libinput_device_listener_done (
+  void *data, struct river_libinput_device_v1 *libinput_device) {}
+
+static const struct river_libinput_device_v1_listener libinput_device_listener =
+  {
+    .removed                = libinput_device_listener_removed,
+    .input_device           = libinput_device_listener_input_device,
+    .send_events_support    = libinput_device_listener_send_events_support,
+    .send_events_default    = libinput_device_listener_send_events_default,
+    .send_events_current    = libinput_device_listener_send_events_current,
+    .tap_support            = libinput_device_listener_tap_support,
+    .tap_default            = libinput_device_listener_tap_default,
+    .tap_current            = libinput_device_listener_tap_current,
+    .tap_button_map_default = libinput_device_listener_tap_button_map_default,
+    .tap_button_map_current = libinput_device_listener_tap_button_map_current,
+    .drag_default           = libinput_device_listener_drag_default,
+    .drag_current           = libinput_device_listener_drag_current,
+    .drag_lock_default      = libinput_device_listener_drag_lock_default,
+    .drag_lock_current      = libinput_device_listener_drag_lock_current,
+    .three_finger_drag_support =
+      libinput_device_listener_three_finger_drag_support,
+    .three_finger_drag_default =
+      libinput_device_listener_three_finger_drag_default,
+    .three_finger_drag_current =
+      libinput_device_listener_three_finger_drag_current,
+    .calibration_matrix_support =
+      libinput_device_listener_calibration_matrix_support,
+    .calibration_matrix_default =
+      libinput_device_listener_calibration_matrix_default,
+    .calibration_matrix_current =
+      libinput_device_listener_calibration_matrix_current,
+    .accel_profiles_support = libinput_device_listener_accel_profiles_support,
+    .accel_profile_default  = libinput_device_listener_accel_profile_default,
+    .accel_profile_current  = libinput_device_listener_accel_profile_current,
+    .accel_speed_default    = libinput_device_listener_accel_speed_default,
+    .accel_speed_current    = libinput_device_listener_accel_speed_current,
+    .natural_scroll_support = libinput_device_listener_natural_scroll_support,
+    .natural_scroll_default = libinput_device_listener_natural_scroll_default,
+    .natural_scroll_current = libinput_device_listener_natural_scroll_current,
+    .left_handed_support    = libinput_device_listener_left_handed_support,
+    .left_handed_default    = libinput_device_listener_left_handed_default,
+    .left_handed_current    = libinput_device_listener_left_handed_current,
+    .click_method_support   = libinput_device_listener_click_method_support,
+    .click_method_default   = libinput_device_listener_click_method_default,
+    .click_method_current   = libinput_device_listener_click_method_current,
+    .clickfinger_button_map_default =
+      libinput_device_listener_clickfinger_button_map_default,
+    .clickfinger_button_map_current =
+      libinput_device_listener_clickfinger_button_map_current,
+    .middle_emulation_support =
+      libinput_device_listener_middle_emulation_support,
+    .middle_emulation_default =
+      libinput_device_listener_middle_emulation_default,
+    .middle_emulation_current =
+      libinput_device_listener_middle_emulation_current,
+    .scroll_method_support = libinput_device_listener_scroll_method_support,
+    .scroll_method_default = libinput_device_listener_scroll_method_default,
+    .scroll_method_current = libinput_device_listener_scroll_method_current,
+    .scroll_button_default = libinput_device_listener_scroll_button_default,
+    .scroll_button_current = libinput_device_listener_scroll_button_current,
+    .scroll_button_lock_default =
+      libinput_device_listener_scroll_button_lock_default,
+    .scroll_button_lock_current =
+      libinput_device_listener_scroll_button_lock_current,
+    .dwt_support      = libinput_device_listener_dwt_support,
+    .dwt_default      = libinput_device_listener_dwt_default,
+    .dwt_current      = libinput_device_listener_dwt_current,
+    .dwtp_support     = libinput_device_listener_dwtp_support,
+    .dwtp_default     = libinput_device_listener_dwtp_default,
+    .dwtp_current     = libinput_device_listener_dwtp_current,
+    .rotation_support = libinput_device_listener_rotation_support,
+    .rotation_default = libinput_device_listener_rotation_default,
+    .rotation_current = libinput_device_listener_rotation_current,
+    .done             = libinput_device_listener_done,
+};
+
+static void libinput_config_listener_finished (
+  void *data, struct river_libinput_config_v1 *libinput_config) {
+  river_libinput_config_v1_destroy (libinput_config);
+}
+
+static void libinput_config_listener_input_device (
+  void *data, struct river_libinput_config_v1 *input_config,
+  struct river_libinput_device_v1 *libinput_device) {
+  river_libinput_device_v1_add_listener (libinput_device,
+                                         &libinput_device_listener, data);
+}
+
+static const struct river_libinput_config_v1_listener libinput_config_listener =
+  {
+    .finished        = libinput_config_listener_finished,
+    .libinput_device = libinput_config_listener_input_device,
+};
 
 static void window_listener_closed (void                   *data,
                                     struct river_window_v1 *window) {
@@ -720,7 +1045,10 @@ static const struct river_window_manager_v1_listener window_manager_listener = {
 static void registry_listener_global (void *data, struct wl_registry *registry,
                                       uint32_t name, const char *interface,
                                       uint32_t version) {
-  if (!strcmp (interface, river_window_manager_v1_interface.name))
+  if (!strcmp (interface, river_libinput_config_v1_interface.name))
+    libinput_config =
+      wl_registry_bind (registry, name, &river_libinput_config_v1_interface, 2);
+  else if (!strcmp (interface, river_window_manager_v1_interface.name))
     window_manager =
       wl_registry_bind (registry, name, &river_window_manager_v1_interface, 5);
   else if (!strcmp (interface, river_xkb_bindings_v1_interface.name))
@@ -753,9 +1081,13 @@ int main (void) {
   wl_registry_add_listener (registry, &registry_listener, &wayland);
   wl_display_roundtrip (display);
 
-  if (window_manager != NULL && xkb_bindings != NULL)
+  if (libinput_config != NULL && window_manager != NULL &&
+      xkb_bindings != NULL) {
+    river_libinput_config_v1_add_listener (libinput_config,
+                                           &libinput_config_listener, &wayland);
     river_window_manager_v1_add_listener (window_manager,
                                           &window_manager_listener, &wayland);
+  }
 
   while (wl_display_dispatch (display) != -1 && !wayland.exit)
     ;
